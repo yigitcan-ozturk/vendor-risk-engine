@@ -24,6 +24,9 @@ The model is intentionally simple and visible in the code. It is designed to sup
 - Show the full score breakdown in the CLI output
 - Return structured JSON for system integration
 - Score multiple vendors from a CSV portfolio file
+- Rank portfolio results from highest to lowest risk
+- Override risk-component weights from the CLI
+- Export ranked batch results to CSV
 - Run with Python only — no third-party runtime dependencies
 
 ## Quick start
@@ -46,20 +49,14 @@ python main.py "Supplier A" \
 Example output:
 
 ```text
-VENDOR RISK ENGINE v0.2
+VENDOR RISK ENGINE v0.3
 --------------------------------------------------
 Vendor              : Supplier A
 Overall risk score  : 31.00 / 100
 Risk level          : MEDIUM
-
-Risk breakdown
---------------------------------------------------
-Delivery risk      :  15.00 / 100 x 30% =   4.50
-Quality risk       :  30.00 / 100 x 25% =   7.50
-Commercial risk    :  40.00 / 100 x 20% =   8.00
-Compliance risk    :  40.00 / 100 x 15% =   6.00
-Dependency risk    :  50.00 / 100 x 10% =   5.00
 ```
+
+The full text report also shows each component risk, its active weight and weighted contribution.
 
 ### JSON output
 
@@ -75,24 +72,7 @@ python main.py "Supplier A" \
   --json
 ```
 
-Example:
-
-```json
-{
-  "vendor": "Supplier A",
-  "score": 31.0,
-  "risk": "MEDIUM",
-  "components": {
-    "delivery": 15.0,
-    "quality": 30.0,
-    "commercial": 40.0,
-    "compliance": 40.0,
-    "dependency": 50.0
-  }
-}
-```
-
-The full JSON result also includes weighted component contributions and the original normalized inputs.
+The JSON payload includes the total score, risk level, component scores, weighted contributions, active weights and normalized inputs.
 
 ## CSV batch scoring
 
@@ -108,26 +88,17 @@ Required CSV columns:
 vendor,on_time_delivery,defect_rate,prepayment_exposure,compliance_incidents,dependency_share
 ```
 
-Example portfolio:
-
-```csv
-vendor,on_time_delivery,defect_rate,prepayment_exposure,compliance_incidents,dependency_share
-Supplier A,98,0.5,0,0,20
-Supplier B,85,3,40,1,50
-Supplier C,60,8,100,3,100
-```
-
-Example output:
+Portfolio results are ranked from highest to lowest risk.
 
 ```text
-VENDOR RISK ENGINE v0.2 - PORTFOLIO
-------------------------------------------------------------------------
-Vendor                            Score         Risk
-------------------------------------------------------------------------
-Supplier C                        77.00     CRITICAL
-Supplier B                        31.00       MEDIUM
-Supplier A                         3.85          LOW
-------------------------------------------------------------------------
+VENDOR RISK ENGINE v0.3 - PORTFOLIO
+------------------------------------------------------------------------------
+  # Vendor                            Score         Risk
+------------------------------------------------------------------------------
+  1 Supplier C                       77.00     CRITICAL
+  2 Supplier B                       31.00       MEDIUM
+  3 Supplier A                        3.85          LOW
+------------------------------------------------------------------------------
 Vendors scored      : 3
 ```
 
@@ -137,11 +108,67 @@ Batch results can also be returned as JSON:
 python main.py --csv samples/vendors.csv --json
 ```
 
+## Configurable weights
+
+Default weights remain:
+
+| Component | Default weight |
+| --- | ---: |
+| Delivery | 30% |
+| Quality | 25% |
+| Commercial | 20% |
+| Compliance | 15% |
+| Dependency | 10% |
+
+Override them from the command line:
+
+```bash
+python main.py --csv samples/vendors.csv \
+  --delivery-weight 40 \
+  --quality-weight 30 \
+  --commercial-weight 15 \
+  --compliance-weight 10 \
+  --dependency-weight 5
+```
+
+Weights must be non-negative and total exactly 100%.
+
+The same custom weights work in single-vendor mode.
+
+## CSV result export
+
+Use `--output` with batch mode to write the ranked portfolio to a CSV file:
+
+```bash
+python main.py --csv samples/vendors.csv --output results.csv
+```
+
+The exported file contains:
+
+- rank
+- vendor
+- total risk score
+- risk level
+- each component risk score
+- each component's weighted contribution
+
+Custom weights and export can be combined:
+
+```bash
+python main.py --csv samples/vendors.csv \
+  --delivery-weight 40 \
+  --quality-weight 30 \
+  --commercial-weight 15 \
+  --compliance-weight 10 \
+  --dependency-weight 5 \
+  --output results.csv
+```
+
 ## Risk model
 
-The model uses five components:
+The risk model uses five components:
 
-| Component | Input | Weight |
+| Component | Input | Default weight |
 | --- | --- | ---: |
 | Delivery | `100 - on-time delivery %` | 30% |
 | Quality | `defect rate % × 10`, capped at 100 | 25% |
@@ -189,15 +216,15 @@ This project is part of a small procurement-tooling set:
 
 ## Roadmap
 
-- Configurable weights and thresholds
-- CSV export of ranked portfolio results
+- Configurable risk thresholds
 - Automatic input from `payment-terms-parser`
 - Supplier trend scoring across review periods
 - Integration with `rfqdiff`
+- Composite supplier scorecard across the procurement-tooling set
 
 ## Status
 
-Early-stage project, currently at **v0.2**. This version adds structured JSON output and CSV portfolio scoring while keeping the transparent five-signal risk model.
+Early-stage project, currently at **v0.3**. This version adds configurable scoring weights, ranked portfolio output and CSV export while preserving the transparent five-signal risk model.
 
 ## License
 
