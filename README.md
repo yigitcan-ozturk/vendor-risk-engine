@@ -206,13 +206,24 @@ python -m unittest discover -s tests -v
 
 GitHub Actions runs the same suite automatically on Python 3.11, 3.12 and 3.13.
 
-## Related tools
+## Procurement tooling suite
 
-This project is part of a small procurement-tooling set:
+`vendor-risk-engine` is part of a small set of transparent Python tools for supplier and procurement decision support:
 
-- [`rfqdiff`](https://github.com/yigitcan-ozturk/rfqdiff) — compare and score supplier quotations
-- [`currency-normalizer`](https://github.com/yigitcan-ozturk/currency-normalizer) — normalize multi-currency supplier quotations
-- [`payment-terms-parser`](https://github.com/yigitcan-ozturk/payment-terms-parser) — parse payment terms and buyer prepayment exposure
+| Tool | Role |
+| --- | --- |
+| [`rfqdiff`](https://github.com/yigitcan-ozturk/rfqdiff) | Compare and score supplier quotations |
+| [`currency-normalizer`](https://github.com/yigitcan-ozturk/currency-normalizer) | Normalize quotation values across currencies |
+| [`payment-terms-parser`](https://github.com/yigitcan-ozturk/payment-terms-parser) | Convert payment terms into commercial-risk signals |
+| **[`vendor-risk-engine`](https://github.com/yigitcan-ozturk/vendor-risk-engine)** | Score operational, commercial, compliance and dependency risk |
+
+A typical decision flow is:
+
+```text
+currency-normalizer -> payment-terms-parser -> rfqdiff -> vendor-risk-engine
+```
+
+Each tool can run independently. The suite roadmap is to combine their outputs into a composite supplier scorecard.
 
 ## Roadmap
 
@@ -220,7 +231,7 @@ This project is part of a small procurement-tooling set:
 - Automatic input from `payment-terms-parser`
 - Supplier trend scoring across review periods
 - Integration with `rfqdiff`
-- Composite supplier scorecard across the procurement-tooling set
+- Composite supplier scorecard across the procurement-tooling suite
 
 ## Status
 
