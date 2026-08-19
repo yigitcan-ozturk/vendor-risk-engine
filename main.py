@@ -1,5 +1,9 @@
 import argparse
+import csv
+import json
 
+
+VERSION = "0.2"
 
 WEIGHTS = {
     "delivery": 0.30,
@@ -8,6 +12,15 @@ WEIGHTS = {
     "compliance": 0.15,
     "dependency": 0.10,
 }
+
+CSV_COLUMNS = (
+    "vendor",
+    "on_time_delivery",
+    "defect_rate",
+    "prepayment_exposure",
+    "compliance_incidents",
+    "dependency_share",
+)
 
 
 def validate_percent(name, value):
@@ -48,6 +61,9 @@ def score_vendor(
     compliance_incidents,
     dependency_share,
 ):
+    if not str(vendor).strip():
+        raise ValueError("vendor name cannot be empty.")
+
     validate_percent("on-time delivery", on_time_delivery)
     validate_percent("defect rate", defect_rate)
     validate_percent("prepayment exposure", prepayment_exposure)
@@ -68,14 +84,14 @@ def score_vendor(
     }
 
     weighted_scores = {
-        name: component_scores[name] * WEIGHTS[name]
+        name: round(component_scores[name] * WEIGHTS[name], 2)
         for name in WEIGHTS
     }
 
     total = round(sum(weighted_scores.values()), 2)
 
     return {
-        "vendor": vendor,
+        "vendor": str(vendor).strip(),
         "score": total,
         "risk": risk_level(total),
         "components": component_scores,
@@ -90,9 +106,48 @@ def score_vendor(
     }
 
 
+def score_csv(path):
+    results = []
+
+    with open(path, newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+
+        if reader.fieldnames is None:
+            raise ValueError("CSV file must include a header row.")
+
+        missing = [name for name in CSV_COLUMNS if name not in reader.fieldnames]
+        if missing:
+            raise ValueError(
+                "CSV is missing required column(s): " + ", ".join(missing)
+            )
+
+        for row_number, row in enumerate(reader, start=2):
+            if not any((value or "").strip() for value in row.values()):
+                continue
+
+            try:
+                result = score_vendor(
+                    vendor=row["vendor"],
+                    on_time_delivery=float(row["on_time_delivery"]),
+                    defect_rate=float(row["defect_rate"]),
+                    prepayment_exposure=float(row["prepayment_exposure"]),
+                    compliance_incidents=int(row["compliance_incidents"]),
+                    dependency_share=float(row["dependency_share"]),
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"CSV row {row_number}: {exc}") from exc
+
+            results.append(result)
+
+    if not results:
+        raise ValueError("CSV file contains no vendor rows.")
+
+    return results
+
+
 def print_report(result):
     print()
-    print("VENDOR RISK ENGINE v0.1")
+    print(f"VENDOR RISK ENGINE v{VERSION}")
     print("-" * 50)
     print(f"Vendor              : {result['vendor']}")
     print(f"Overall risk score  : {result['score']:.2f} / 100")
@@ -119,6 +174,30 @@ def print_report(result):
         )
 
 
+def print_batch_report(results):
+    ranked = sorted(results, key=lambda item: item["score"], reverse=True)
+
+    print()
+    print(f"VENDOR RISK ENGINE v{VERSION} - PORTFOLIO")
+    print("-" * 72)
+    print(f"{'Vendor':30} {'Score':>8} {'Risk':>12}")
+    print("-" * 72)
+
+    for result in ranked:
+        print(
+            f"{result['vendor'][:30]:30} "
+            f"{result['score']:8.2f} "
+            f"{result['risk']:>12}"
+        )
+
+    print("-" * 72)
+    print(f"Vendors scored      : {len(ranked)}")
+
+
+def print_json(payload):
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         description=(
@@ -127,46 +206,89 @@ def build_parser():
         )
     )
 
-    parser.add_argument("vendor", help="Vendor or supplier name.")
+    parser.add_argument(
+        "vendor",
+        nargs="?",
+        help="Vendor or supplier name for single-vendor scoring.",
+    )
+    parser.add_argument(
+        "--csv",
+        dest="csv_path",
+        help="Score a portfolio from a CSV file.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Return structured JSON instead of the text report.",
+    )
     parser.add_argument(
         "--on-time-delivery",
         type=float,
-        required=True,
         help="On-time delivery performance as a percentage (0-100).",
     )
     parser.add_argument(
         "--defect-rate",
         type=float,
-        required=True,
         help="Defect rate as a percentage (0-100).",
     )
     parser.add_argument(
         "--prepayment-exposure",
         type=float,
-        required=True,
         help="Buyer payment exposure before delivery as a percentage (0-100).",
     )
     parser.add_argument(
         "--compliance-incidents",
         type=int,
-        required=True,
         help="Known compliance incidents in the review period.",
     )
     parser.add_argument(
         "--dependency-share",
         type=float,
-        required=True,
         help="Share of category dependency concentrated on this vendor (0-100).",
     )
 
     return parser
 
 
+def validate_cli_mode(parser, args):
+    if args.csv_path and args.vendor:
+        parser.error("use either a vendor name or --csv, not both.")
+
+    if args.csv_path:
+        return
+
+    if not args.vendor:
+        parser.error("vendor name is required unless --csv is used.")
+
+    required = {
+        "--on-time-delivery": args.on_time_delivery,
+        "--defect-rate": args.defect_rate,
+        "--prepayment-exposure": args.prepayment_exposure,
+        "--compliance-incidents": args.compliance_incidents,
+        "--dependency-share": args.dependency_share,
+    }
+
+    missing = [flag for flag, value in required.items() if value is None]
+    if missing:
+        parser.error(
+            "single-vendor mode requires: " + ", ".join(missing)
+        )
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
+    validate_cli_mode(parser, args)
 
     try:
+        if args.csv_path:
+            results = score_csv(args.csv_path)
+            if args.json:
+                print_json(results)
+            else:
+                print_batch_report(results)
+            return
+
         result = score_vendor(
             vendor=args.vendor,
             on_time_delivery=args.on_time_delivery,
@@ -175,10 +297,13 @@ def main():
             compliance_incidents=args.compliance_incidents,
             dependency_share=args.dependency_share,
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         parser.error(str(exc))
 
-    print_report(result)
+    if args.json:
+        print_json(result)
+    else:
+        print_report(result)
 
 
 if __name__ == "__main__":
