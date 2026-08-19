@@ -1,0 +1,4 @@
+vendor,on_time_delivery,defect_rate,prepayment_exposure,compliance_incidents,dependency_share
+Supplier A,98,0.5,0,0,20
+Supplier B,85,3,40,1,50
+Supplier C,60,8,100,3,100
