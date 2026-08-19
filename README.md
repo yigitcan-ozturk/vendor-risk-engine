@@ -6,11 +6,9 @@ A lightweight Python CLI for scoring supplier/vendor risk using transparent oper
 
 ## Why vendor-risk-engine
 
-Supplier risk is usually spread across multiple signals: delivery performance, defects, payment exposure, compliance events and dependency on a single source. Reviewing those signals separately makes it difficult to compare vendors consistently.
+Supplier risk is usually spread across multiple signals: delivery performance, defects, payment exposure, compliance events and dependency on a single source. `vendor-risk-engine` converts those measurable inputs into a transparent 0–100 risk score and a LOW / MEDIUM / HIGH / CRITICAL classification.
 
-`vendor-risk-engine` converts a small set of measurable supplier inputs into a transparent 0–100 risk score and a LOW / MEDIUM / HIGH / CRITICAL classification.
-
-The model is intentionally simple and visible in the code. It is designed to support procurement judgment, not replace it.
+The model is intended to support procurement judgment, not replace it.
 
 ## Features
 
@@ -21,21 +19,14 @@ The model is intentionally simple and visible in the code. It is designed to sup
 - Measure category dependency / concentration risk
 - Produce a weighted 0–100 vendor risk score
 - Assign LOW / MEDIUM / HIGH / CRITICAL risk levels
-- Show the full score breakdown in the CLI output
 - Return structured JSON for system integration
-- Score multiple vendors from a CSV portfolio file
-- Rank portfolio results from highest to lowest risk
-- Override risk-component weights from the CLI
-- Export ranked batch results to CSV
+- Score multiple vendors from CSV
+- Rank portfolio results
+- Override risk-component weights
+- Export ranked results to CSV
 - Run with Python only — no third-party runtime dependencies
 
 ## Quick start
-
-### Requirements
-
-- Python 3.11+
-
-### Score one vendor
 
 ```bash
 python main.py "Supplier A" \
@@ -46,21 +37,7 @@ python main.py "Supplier A" \
   --dependency-share 50
 ```
 
-Example output:
-
-```text
-VENDOR RISK ENGINE v0.3
---------------------------------------------------
-Vendor              : Supplier A
-Overall risk score  : 31.00 / 100
-Risk level          : MEDIUM
-```
-
-The full text report also shows each component risk, its active weight and weighted contribution.
-
-### JSON output
-
-Add `--json` to return a structured result:
+Structured output for the integrated scorecard:
 
 ```bash
 python main.py "Supplier A" \
@@ -69,48 +46,28 @@ python main.py "Supplier A" \
   --prepayment-exposure 40 \
   --compliance-incidents 1 \
   --dependency-share 50 \
-  --json
+  --json > vendor-risk.json
 ```
 
-The JSON payload includes the total score, risk level, component scores, weighted contributions, active weights and normalized inputs.
+`supplier-scorecard` reads the `vendor` and `score` fields directly from this JSON result.
 
 ## CSV batch scoring
-
-Use `--csv` to score a supplier portfolio in one run:
 
 ```bash
 python main.py --csv samples/vendors.csv
 ```
 
-Required CSV columns:
-
-```text
-vendor,on_time_delivery,defect_rate,prepayment_exposure,compliance_incidents,dependency_share
-```
-
-Portfolio results are ranked from highest to lowest risk.
-
-```text
-VENDOR RISK ENGINE v0.3 - PORTFOLIO
-------------------------------------------------------------------------------
-  # Vendor                            Score         Risk
-------------------------------------------------------------------------------
-  1 Supplier C                       77.00     CRITICAL
-  2 Supplier B                       31.00       MEDIUM
-  3 Supplier A                        3.85          LOW
-------------------------------------------------------------------------------
-Vendors scored      : 3
-```
-
-Batch results can also be returned as JSON:
+Batch JSON is also supported:
 
 ```bash
 python main.py --csv samples/vendors.csv --json
 ```
 
+`supplier-scorecard` can select a matching supplier from either a single vendor-risk object or a batch JSON list.
+
 ## Configurable weights
 
-Default weights remain:
+Defaults:
 
 | Component | Default weight |
 | --- | ---: |
@@ -120,7 +77,7 @@ Default weights remain:
 | Compliance | 15% |
 | Dependency | 10% |
 
-Override them from the command line:
+Example override:
 
 ```bash
 python main.py --csv samples/vendors.csv \
@@ -133,40 +90,7 @@ python main.py --csv samples/vendors.csv \
 
 Weights must be non-negative and total exactly 100%.
 
-The same custom weights work in single-vendor mode.
-
-## CSV result export
-
-Use `--output` with batch mode to write the ranked portfolio to a CSV file:
-
-```bash
-python main.py --csv samples/vendors.csv --output results.csv
-```
-
-The exported file contains:
-
-- rank
-- vendor
-- total risk score
-- risk level
-- each component risk score
-- each component's weighted contribution
-
-Custom weights and export can be combined:
-
-```bash
-python main.py --csv samples/vendors.csv \
-  --delivery-weight 40 \
-  --quality-weight 30 \
-  --commercial-weight 15 \
-  --compliance-weight 10 \
-  --dependency-weight 5 \
-  --output results.csv
-```
-
 ## Risk model
-
-The risk model uses five components:
 
 | Component | Input | Default weight |
 | --- | --- | ---: |
@@ -175,15 +99,6 @@ The risk model uses five components:
 | Commercial | buyer prepayment exposure % | 20% |
 | Compliance | incident-based risk scale | 15% |
 | Dependency | category dependency share % | 10% |
-
-Compliance incidents are mapped as follows:
-
-| Incidents | Risk score |
-| ---: | ---: |
-| 0 | 0 |
-| 1 | 40 |
-| 2 | 70 |
-| 3+ | 100 |
 
 Overall risk classification:
 
@@ -194,48 +109,47 @@ Overall risk classification:
 | 50–74.99 | HIGH |
 | 75–100 | CRITICAL |
 
-The weights and thresholds are deliberately explicit so the scoring logic can be reviewed, challenged and changed as the project evolves.
+## Pipeline role
+
+```text
+currency-normalizer ──> rfqdiff ───────────────┐
+                                               │
+payment-terms-parser ──────────────────────────┼─> supplier-scorecard
+                                               │
+vendor-risk-engine ────────────────────────────┘
+```
+
+`vendor-risk-engine` is one of the three direct decision inputs into `supplier-scorecard`.
 
 ## Tests
-
-Run the test suite locally with:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-GitHub Actions runs the same suite automatically on Python 3.11, 3.12 and 3.13.
+GitHub Actions runs the suite automatically on Python 3.11, 3.12 and 3.13.
 
 ## Procurement tooling suite
 
-`vendor-risk-engine` is part of a small set of transparent Python tools for supplier and procurement decision support:
-
 | Tool | Role |
 | --- | --- |
-| [`rfqdiff`](https://github.com/yigitcan-ozturk/rfqdiff) | Compare and score supplier quotations |
 | [`currency-normalizer`](https://github.com/yigitcan-ozturk/currency-normalizer) | Normalize quotation values across currencies |
+| [`rfqdiff`](https://github.com/yigitcan-ozturk/rfqdiff) | Compare and score normalized quotations |
 | [`payment-terms-parser`](https://github.com/yigitcan-ozturk/payment-terms-parser) | Convert payment terms into commercial-risk signals |
-| **[`vendor-risk-engine`](https://github.com/yigitcan-ozturk/vendor-risk-engine)** | Score operational, commercial, compliance and dependency risk |
-
-A typical decision flow is:
-
-```text
-currency-normalizer -> payment-terms-parser -> rfqdiff -> vendor-risk-engine
-```
-
-Each tool can run independently. The suite roadmap is to combine their outputs into a composite supplier scorecard.
+| **[`vendor-risk-engine`](https://github.com/yigitcan-ozturk/vendor-risk-engine)** | Score operational, quality, compliance and dependency risk |
+| [`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) | Combine upstream signals into one supplier recommendation |
 
 ## Roadmap
 
 - Configurable risk thresholds
-- Automatic input from `payment-terms-parser`
-- Supplier trend scoring across review periods
-- Integration with `rfqdiff`
-- Composite supplier scorecard across the procurement-tooling suite
+- Historical supplier trend scoring
+- Richer compliance models
+- Pipeline portfolio mode with `supplier-scorecard`
+- More explicit source/version metadata in structured results
 
 ## Status
 
-Early-stage project, currently at **v0.3**. This version adds configurable scoring weights, ranked portfolio output and CSV export while preserving the transparent five-signal risk model.
+Early-stage project, currently at **v0.3**. The current version provides configurable transparent risk scoring, batch ranking and CSV export, and its JSON output is now consumed directly by `supplier-scorecard`.
 
 ## License
 
