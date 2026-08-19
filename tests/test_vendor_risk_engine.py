@@ -1,9 +1,19 @@
+import csv
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from main import compliance_risk, risk_level, score_csv, score_vendor
+from main import (
+    DEFAULT_WEIGHTS,
+    compliance_risk,
+    rank_results,
+    risk_level,
+    score_csv,
+    score_vendor,
+    validate_weights,
+    write_results_csv,
+)
 
 
 class VendorRiskEngineTests(unittest.TestCase):
@@ -145,6 +155,122 @@ class VendorRiskEngineTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "CSV row 2"):
                 score_csv(path)
+
+    def test_default_weights_total_100_percent(self):
+        validated = validate_weights(DEFAULT_WEIGHTS)
+        self.assertAlmostEqual(sum(validated.values()), 1.0)
+
+    def test_custom_weights_change_score(self):
+        custom_weights = {
+            "delivery": 0.40,
+            "quality": 0.30,
+            "commercial": 0.15,
+            "compliance": 0.10,
+            "dependency": 0.05,
+        }
+        result = score_vendor(
+            vendor="Supplier B",
+            on_time_delivery=85,
+            defect_rate=3,
+            prepayment_exposure=40,
+            compliance_incidents=1,
+            dependency_share=50,
+            weights=custom_weights,
+        )
+
+        self.assertAlmostEqual(result["score"], 27.5)
+        self.assertEqual(result["weights"], custom_weights)
+
+    def test_invalid_weight_total_rejected(self):
+        with self.assertRaisesRegex(ValueError, "total 100%"):
+            validate_weights(
+                {
+                    "delivery": 0.40,
+                    "quality": 0.30,
+                    "commercial": 0.20,
+                    "compliance": 0.10,
+                    "dependency": 0.10,
+                }
+            )
+
+    def test_negative_weight_rejected(self):
+        with self.assertRaisesRegex(ValueError, "cannot be negative"):
+            validate_weights(
+                {
+                    "delivery": 0.40,
+                    "quality": 0.30,
+                    "commercial": 0.20,
+                    "compliance": 0.15,
+                    "dependency": -0.05,
+                }
+            )
+
+    def test_score_csv_uses_custom_weights(self):
+        csv_text = (
+            "vendor,on_time_delivery,defect_rate,prepayment_exposure,"
+            "compliance_incidents,dependency_share\n"
+            "Supplier B,85,3,40,1,50\n"
+        )
+        custom_weights = {
+            "delivery": 0.40,
+            "quality": 0.30,
+            "commercial": 0.15,
+            "compliance": 0.10,
+            "dependency": 0.05,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "vendors.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            results = score_csv(path, weights=custom_weights)
+
+        self.assertAlmostEqual(results[0]["score"], 27.5)
+
+    def test_rank_results_highest_risk_first(self):
+        results = [
+            {"vendor": "Low", "score": 10.0},
+            {"vendor": "Critical", "score": 80.0},
+            {"vendor": "Medium", "score": 30.0},
+        ]
+        ranked = rank_results(results)
+
+        self.assertEqual(
+            [result["vendor"] for result in ranked],
+            ["Critical", "Medium", "Low"],
+        )
+
+    def test_write_results_csv_includes_rank_and_breakdown(self):
+        results = [
+            score_vendor(
+                vendor="Supplier A",
+                on_time_delivery=98,
+                defect_rate=0.5,
+                prepayment_exposure=0,
+                compliance_incidents=0,
+                dependency_share=20,
+            ),
+            score_vendor(
+                vendor="Supplier C",
+                on_time_delivery=60,
+                defect_rate=8,
+                prepayment_exposure=100,
+                compliance_incidents=3,
+                dependency_share=100,
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "results.csv"
+            ranked = write_results_csv(results, path)
+
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+
+        self.assertEqual(ranked[0]["vendor"], "Supplier C")
+        self.assertEqual(rows[0]["rank"], "1")
+        self.assertEqual(rows[0]["vendor"], "Supplier C")
+        self.assertEqual(rows[0]["risk"], "CRITICAL")
+        self.assertIn("delivery_weighted", rows[0])
 
 
 if __name__ == "__main__":
