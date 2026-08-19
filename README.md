@@ -22,6 +22,8 @@ The model is intentionally simple and visible in the code. It is designed to sup
 - Produce a weighted 0–100 vendor risk score
 - Assign LOW / MEDIUM / HIGH / CRITICAL risk levels
 - Show the full score breakdown in the CLI output
+- Return structured JSON for system integration
+- Score multiple vendors from a CSV portfolio file
 - Run with Python only — no third-party runtime dependencies
 
 ## Quick start
@@ -30,7 +32,7 @@ The model is intentionally simple and visible in the code. It is designed to sup
 
 - Python 3.11+
 
-### Run
+### Score one vendor
 
 ```bash
 python main.py "Supplier A" \
@@ -44,7 +46,7 @@ python main.py "Supplier A" \
 Example output:
 
 ```text
-VENDOR RISK ENGINE v0.1
+VENDOR RISK ENGINE v0.2
 --------------------------------------------------
 Vendor              : Supplier A
 Overall risk score  : 31.00 / 100
@@ -59,9 +61,85 @@ Compliance risk    :  40.00 / 100 x 15% =   6.00
 Dependency risk    :  50.00 / 100 x 10% =   5.00
 ```
 
+### JSON output
+
+Add `--json` to return a structured result:
+
+```bash
+python main.py "Supplier A" \
+  --on-time-delivery 85 \
+  --defect-rate 3 \
+  --prepayment-exposure 40 \
+  --compliance-incidents 1 \
+  --dependency-share 50 \
+  --json
+```
+
+Example:
+
+```json
+{
+  "vendor": "Supplier A",
+  "score": 31.0,
+  "risk": "MEDIUM",
+  "components": {
+    "delivery": 15.0,
+    "quality": 30.0,
+    "commercial": 40.0,
+    "compliance": 40.0,
+    "dependency": 50.0
+  }
+}
+```
+
+The full JSON result also includes weighted component contributions and the original normalized inputs.
+
+## CSV batch scoring
+
+Use `--csv` to score a supplier portfolio in one run:
+
+```bash
+python main.py --csv samples/vendors.csv
+```
+
+Required CSV columns:
+
+```text
+vendor,on_time_delivery,defect_rate,prepayment_exposure,compliance_incidents,dependency_share
+```
+
+Example portfolio:
+
+```csv
+vendor,on_time_delivery,defect_rate,prepayment_exposure,compliance_incidents,dependency_share
+Supplier A,98,0.5,0,0,20
+Supplier B,85,3,40,1,50
+Supplier C,60,8,100,3,100
+```
+
+Example output:
+
+```text
+VENDOR RISK ENGINE v0.2 - PORTFOLIO
+------------------------------------------------------------------------
+Vendor                            Score         Risk
+------------------------------------------------------------------------
+Supplier C                        77.00     CRITICAL
+Supplier B                        31.00       MEDIUM
+Supplier A                         3.85          LOW
+------------------------------------------------------------------------
+Vendors scored      : 3
+```
+
+Batch results can also be returned as JSON:
+
+```bash
+python main.py --csv samples/vendors.csv --json
+```
+
 ## Risk model
 
-The v0.1 model uses five components:
+The model uses five components:
 
 | Component | Input | Weight |
 | --- | --- | ---: |
@@ -111,16 +189,15 @@ This project is part of a small procurement-tooling set:
 
 ## Roadmap
 
-- JSON output for system integration
-- CSV batch scoring for vendor portfolios
 - Configurable weights and thresholds
+- CSV export of ranked portfolio results
 - Automatic input from `payment-terms-parser`
 - Supplier trend scoring across review periods
 - Integration with `rfqdiff`
 
 ## Status
 
-Early-stage project, currently at **v0.1**. The first version provides a transparent, deterministic vendor-risk score from five procurement-relevant signals.
+Early-stage project, currently at **v0.2**. This version adds structured JSON output and CSV portfolio scoring while keeping the transparent five-signal risk model.
 
 ## License
 
