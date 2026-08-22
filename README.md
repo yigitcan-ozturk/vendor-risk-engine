@@ -1,35 +1,35 @@
 # vendor-risk-engine
 
-A lightweight Python CLI for scoring supplier/vendor risk using transparent operational, commercial, compliance and dependency signals.
+**Transparent supplier-risk scoring across delivery, quality, commercial, compliance and dependency signals.**
 
 [![Tests](https://github.com/yigitcan-ozturk/vendor-risk-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/yigitcan-ozturk/vendor-risk-engine/actions/workflows/tests.yml)
 
-## Why vendor-risk-engine
+`vendor-risk-engine` converts measurable supplier-risk inputs into an explicit 0–100 score and LOW / MEDIUM / HIGH / CRITICAL classification.
 
-Supplier risk is usually spread across multiple signals: delivery performance, defects, payment exposure, compliance events and dependency on a single source. `vendor-risk-engine` converts those measurable inputs into a transparent 0–100 risk score and a LOW / MEDIUM / HIGH / CRITICAL classification.
+The model supports procurement judgment rather than replacing it. Its compliance signal represents supplier-risk events; technical bid compliance remains an independent responsibility of [`bidlint`](https://github.com/yigitcan-ozturk/bidlint).
 
-The model is intended to support procurement judgment, not replace it. Its compliance signal represents supplier-risk events; technical bid compliance remains an independent responsibility of [`bidlint`](https://github.com/yigitcan-ozturk/bidlint).
+## Install
 
-## Features
+Requirements: Python 3.11+.
 
-- Score delivery risk from on-time delivery performance
-- Score quality risk from supplier defect rate
-- Include buyer prepayment exposure as commercial risk
-- Include known compliance incidents
-- Measure category dependency / concentration risk
-- Produce a weighted 0–100 vendor risk score
-- Assign LOW / MEDIUM / HIGH / CRITICAL risk levels
-- Return structured JSON for system integration
-- Score multiple vendors from CSV
-- Rank portfolio results
-- Override risk-component weights
-- Export ranked results to CSV
-- Run with Python only — no third-party runtime dependencies
+```bash
+git clone https://github.com/yigitcan-ozturk/vendor-risk-engine.git
+cd vendor-risk-engine
+python -m pip install .
+```
+
+The installed command is:
+
+```bash
+vendor-risk-engine --help
+```
+
+The original `python main.py ...` source-checkout workflow remains supported for backward compatibility.
 
 ## Quick start
 
 ```bash
-python main.py "Supplier A" \
+vendor-risk-engine "Supplier A" \
   --on-time-delivery 85 \
   --defect-rate 3 \
   --prepayment-exposure 40 \
@@ -40,7 +40,7 @@ python main.py "Supplier A" \
 Structured output for the integrated scorecard:
 
 ```bash
-python main.py "Supplier A" \
+vendor-risk-engine "Supplier A" \
   --on-time-delivery 85 \
   --defect-rate 3 \
   --prepayment-exposure 40 \
@@ -51,16 +51,26 @@ python main.py "Supplier A" \
 
 `supplier-scorecard` reads the `vendor` and `score` fields directly from this JSON result.
 
+## Public Python API
+
+```python
+import vendor_risk_engine
+
+result = vendor_risk_engine.score_vendor(
+    "Supplier A",
+    on_time_delivery=90,
+    defect_rate=1,
+    prepayment_exposure=20,
+    compliance_incidents=0,
+    dependency_share=25,
+)
+```
+
 ## CSV batch scoring
 
 ```bash
-python main.py --csv samples/vendors.csv
-```
-
-Batch JSON is also supported:
-
-```bash
-python main.py --csv samples/vendors.csv --json
+vendor-risk-engine --csv samples/vendors.csv
+vendor-risk-engine --csv samples/vendors.csv --json
 ```
 
 `supplier-scorecard` can select a matching supplier from either a single vendor-risk object or a batch JSON list.
@@ -80,7 +90,7 @@ Defaults:
 Example override:
 
 ```bash
-python main.py --csv samples/vendors.csv \
+vendor-risk-engine --csv samples/vendors.csv \
   --delivery-weight 40 \
   --quality-weight 30 \
   --commercial-weight 15 \
@@ -123,15 +133,17 @@ bidlint ──> technical compliance ──────────────�
 
 `vendor-risk-engine` contributes the supplier-risk signal to `supplier-scorecard`; `bidlint` contributes technical compliance separately. This separation keeps operational/vendor risk and engineering compliance independently inspectable.
 
-## Tests
+## Quality gates
 
-```bash
-python -m unittest discover -s tests -v
-```
+GitHub Actions validates:
 
-GitHub Actions runs the suite automatically on Python 3.11, 3.12 and 3.13.
+- unit tests on Python 3.11, 3.12 and 3.13;
+- wheel and source-distribution builds;
+- package metadata with `twine check`;
+- installation of the built wheel;
+- the installed `vendor-risk-engine` console command and public package namespace.
 
-## Procurement tooling suite
+## Engineering procurement toolchain
 
 | Tool | Role |
 | --- | --- |
@@ -152,7 +164,7 @@ GitHub Actions runs the suite automatically on Python 3.11, 3.12 and 3.13.
 
 ## Status
 
-Early-stage project, currently at **v0.3**. The current version provides configurable transparent risk scoring, batch ranking and CSV export, and its JSON output is now consumed directly by `supplier-scorecard`.
+Early-stage project, currently at **v0.3**. The current line provides transparent risk scoring, batch ranking, CSV export, an installable Python package and a console CLI.
 
 ## License
 
