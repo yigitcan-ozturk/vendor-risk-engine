@@ -8,7 +8,7 @@ A lightweight Python CLI for scoring supplier/vendor risk using transparent oper
 
 Supplier risk is usually spread across multiple signals: delivery performance, defects, payment exposure, compliance events and dependency on a single source. `vendor-risk-engine` converts those measurable inputs into a transparent 0–100 risk score and a LOW / MEDIUM / HIGH / CRITICAL classification.
 
-The model is intended to support procurement judgment, not replace it.
+The model is intended to support procurement judgment, not replace it. Its compliance signal represents supplier-risk events; technical bid compliance remains an independent responsibility of [`bidlint`](https://github.com/yigitcan-ozturk/bidlint).
 
 ## Features
 
@@ -97,7 +97,7 @@ Weights must be non-negative and total exactly 100%.
 | Delivery | `100 - on-time delivery %` | 30% |
 | Quality | `defect rate % × 10`, capped at 100 | 25% |
 | Commercial | buyer prepayment exposure % | 20% |
-| Compliance | incident-based risk scale | 15% |
+| Compliance | incident-based supplier-risk scale | 15% |
 | Dependency | category dependency share % | 10% |
 
 Overall risk classification:
@@ -112,14 +112,16 @@ Overall risk classification:
 ## Pipeline role
 
 ```text
-currency-normalizer ──> rfqdiff ───────────────┐
-                                               │
-payment-terms-parser ──────────────────────────┼─> supplier-scorecard
-                                               │
-vendor-risk-engine ────────────────────────────┘
+currency-normalizer ──> rfqdiff ───────────────────────┐
+                                                        │
+payment-terms-parser ──────────────────────────────────┼──> supplier-scorecard
+                                                        │
+vendor-risk-engine ────────────────────────────────────┤
+                                                        │
+bidlint ──> technical compliance ──────────────────────┘
 ```
 
-`vendor-risk-engine` is one of the three direct decision inputs into `supplier-scorecard`.
+`vendor-risk-engine` contributes the supplier-risk signal to `supplier-scorecard`; `bidlint` contributes technical compliance separately. This separation keeps operational/vendor risk and engineering compliance independently inspectable.
 
 ## Tests
 
@@ -136,14 +138,15 @@ GitHub Actions runs the suite automatically on Python 3.11, 3.12 and 3.13.
 | [`currency-normalizer`](https://github.com/yigitcan-ozturk/currency-normalizer) | Normalize quotation values across currencies |
 | [`rfqdiff`](https://github.com/yigitcan-ozturk/rfqdiff) | Compare and score normalized quotations |
 | [`payment-terms-parser`](https://github.com/yigitcan-ozturk/payment-terms-parser) | Convert payment terms into commercial-risk signals |
-| **[`vendor-risk-engine`](https://github.com/yigitcan-ozturk/vendor-risk-engine)** | Score operational, quality, compliance and dependency risk |
-| [`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) | Combine upstream signals into one supplier recommendation |
+| **[`vendor-risk-engine`](https://github.com/yigitcan-ozturk/vendor-risk-engine)** | Score operational, quality, supplier-compliance and dependency risk |
+| [`bidlint`](https://github.com/yigitcan-ozturk/bidlint) | Produce evidence-backed technical-compliance findings and scores |
+| [`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) | Combine commercial, risk and technical signals into one supplier recommendation |
 
 ## Roadmap
 
 - Configurable risk thresholds
 - Historical supplier trend scoring
-- Richer compliance models
+- Richer supplier compliance-risk models
 - Pipeline portfolio mode with `supplier-scorecard`
 - More explicit source/version metadata in structured results
 
