@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vendor-risk-engine"
+version = "0.3.0"
+description = "Transparent supplier risk scoring across delivery, quality, commercial, compliance and dependency signals."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Yiğitcan Öztürk" }]
+keywords = ["procurement", "vendor-management", "supplier-risk", "risk-management", "supply-chain", "decision-support"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business",
+]
+
+[project.urls]
+Homepage = "https://github.com/yigitcan-ozturk/vendor-risk-engine"
+Repository = "https://github.com/yigitcan-ozturk/vendor-risk-engine"
+Issues = "https://github.com/yigitcan-ozturk/vendor-risk-engine/issues"
+
+[project.scripts]
+vendor-risk-engine = "vendor_risk_engine.cli:main"
+
+[tool.setuptools]
+packages = ["vendor_risk_engine"]
+py-modules = ["main"]
