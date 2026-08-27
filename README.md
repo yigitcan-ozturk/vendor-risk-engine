@@ -3,10 +3,38 @@
 **Transparent supplier-risk scoring across delivery, quality, commercial, compliance and dependency signals.**
 
 [![Tests](https://github.com/yigitcan-ozturk/vendor-risk-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/yigitcan-ozturk/vendor-risk-engine/actions/workflows/tests.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 `vendor-risk-engine` converts measurable supplier-risk inputs into an explicit 0–100 score and LOW / MEDIUM / HIGH / CRITICAL classification.
 
 The model supports procurement judgment rather than replacing it. Its compliance signal represents supplier-risk events; technical bid compliance remains an independent responsibility of [`bidlint`](https://github.com/yigitcan-ozturk/bidlint).
+
+## Why vendor-risk-engine
+
+Supplier risk is often buried inside subjective notes or blended into a final score without a clear explanation of what drove the result. `vendor-risk-engine` keeps delivery, quality, commercial exposure, compliance incidents and dependency risk visible as separate measurable components.
+
+The objective is an inspectable risk signal that can be reviewed on its own and then passed into a broader supplier decision workflow.
+
+## Decision boundary
+
+`vendor-risk-engine` is responsible for **supplier operational and commercial risk scoring**.
+
+It does:
+
+- calculate explicit component risk scores;
+- support configurable weights that must total 100%;
+- classify overall supplier risk;
+- score individual suppliers or CSV batches;
+- provide structured JSON for `supplier-scorecard`.
+
+It intentionally does **not**:
+
+- determine technical bid compliance;
+- compare quotation prices;
+- interpret legal or regulatory compliance as legal advice;
+- infer missing supplier facts;
+- make final supplier approval decisions.
 
 ## Install
 
@@ -49,7 +77,7 @@ vendor-risk-engine "Supplier A" \
   --json > vendor-risk.json
 ```
 
-`supplier-scorecard` reads the `vendor` and `score` fields directly from this JSON result.
+[`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) reads the `vendor` and `score` fields directly from this JSON result.
 
 ## Public Python API
 
@@ -142,6 +170,14 @@ GitHub Actions validates:
 - package metadata with `twine check`;
 - installation of the built wheel;
 - the installed `vendor-risk-engine` console command and public package namespace.
+
+## Engineering principles
+
+- **Transparent components** — each risk contribution remains visible.
+- **Configurable, not opaque** — weighting can change, but it must remain explicit and valid.
+- **No fabricated evidence** — missing supplier facts are not silently invented.
+- **Separation of concerns** — supplier risk and technical compliance remain independent signals.
+- **Review before authority** — the score informs procurement review; it does not approve a supplier.
 
 ## Engineering procurement toolchain
 
