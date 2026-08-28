@@ -3,7 +3,11 @@ import csv
 import json
 
 
-VERSION = "0.3"
+ENGINE_NAME = "vendor-risk-engine"
+VERSION = "0.4"
+PACKAGE_VERSION = "0.4.0"
+MODEL_VERSION = "vendor-risk-v1"
+SCHEMA_VERSION = "1.0"
 
 DEFAULT_WEIGHTS = {
     "delivery": 0.30,
@@ -11,6 +15,12 @@ DEFAULT_WEIGHTS = {
     "commercial": 0.20,
     "compliance": 0.15,
     "dependency": 0.10,
+}
+
+DEFAULT_THRESHOLDS = {
+    "medium": 25.0,
+    "high": 50.0,
+    "critical": 75.0,
 }
 
 CSV_COLUMNS = (
@@ -23,6 +33,7 @@ CSV_COLUMNS = (
 )
 
 RISK_COMPONENTS = tuple(DEFAULT_WEIGHTS)
+RISK_THRESHOLD_NAMES = tuple(DEFAULT_THRESHOLDS)
 
 
 def validate_percent(name, value):
@@ -53,6 +64,32 @@ def validate_weights(weights):
     return normalized
 
 
+def validate_thresholds(thresholds):
+    missing = [name for name in RISK_THRESHOLD_NAMES if name not in thresholds]
+    if missing:
+        raise ValueError(
+            "thresholds are missing level(s): " + ", ".join(missing)
+        )
+
+    normalized = {}
+    for name in RISK_THRESHOLD_NAMES:
+        value = float(thresholds[name])
+        validate_percent(f"{name} threshold", value)
+        normalized[name] = value
+
+    if not (
+        normalized["medium"]
+        < normalized["high"]
+        < normalized["critical"]
+    ):
+        raise ValueError(
+            "thresholds must be strictly increasing: "
+            "medium < high < critical."
+        )
+
+    return normalized
+
+
 def compliance_risk(incidents):
     if incidents < 0:
         raise ValueError("compliance incidents cannot be negative.")
@@ -67,15 +104,29 @@ def compliance_risk(incidents):
     return 100.0
 
 
-def risk_level(score):
-    if score >= 75:
+def risk_level(score, thresholds=None):
+    validate_percent("risk score", score)
+    active_thresholds = validate_thresholds(
+        DEFAULT_THRESHOLDS if thresholds is None else thresholds
+    )
+
+    if score >= active_thresholds["critical"]:
         return "CRITICAL"
-    if score >= 50:
+    if score >= active_thresholds["high"]:
         return "HIGH"
-    if score >= 25:
+    if score >= active_thresholds["medium"]:
         return "MEDIUM"
 
     return "LOW"
+
+
+def result_metadata():
+    return {
+        "engine": ENGINE_NAME,
+        "engine_version": PACKAGE_VERSION,
+        "model_version": MODEL_VERSION,
+        "schema_version": SCHEMA_VERSION,
+    }
 
 
 def score_vendor(
@@ -86,6 +137,7 @@ def score_vendor(
     compliance_incidents,
     dependency_share,
     weights=None,
+    thresholds=None,
 ):
     if not str(vendor).strip():
         raise ValueError("vendor name cannot be empty.")
@@ -97,6 +149,9 @@ def score_vendor(
 
     active_weights = validate_weights(
         DEFAULT_WEIGHTS if weights is None else weights
+    )
+    active_thresholds = validate_thresholds(
+        DEFAULT_THRESHOLDS if thresholds is None else thresholds
     )
 
     delivery = 100.0 - on_time_delivery
@@ -123,10 +178,16 @@ def score_vendor(
     return {
         "vendor": str(vendor).strip(),
         "score": total,
-        "risk": risk_level(total),
+        "risk": risk_level(total, thresholds=active_thresholds),
+        "meta": result_metadata(),
+        "policy": {
+            "weights": active_weights,
+            "thresholds": active_thresholds,
+        },
         "components": component_scores,
         "weighted": weighted_scores,
         "weights": active_weights,
+        "thresholds": active_thresholds,
         "inputs": {
             "on_time_delivery": on_time_delivery,
             "defect_rate": defect_rate,
@@ -137,7 +198,7 @@ def score_vendor(
     }
 
 
-def score_csv(path, weights=None):
+def score_csv(path, weights=None, thresholds=None):
     results = []
 
     with open(path, newline="", encoding="utf-8-sig") as handle:
@@ -165,6 +226,7 @@ def score_csv(path, weights=None):
                     compliance_incidents=int(row["compliance_incidents"]),
                     dependency_share=float(row["dependency_share"]),
                     weights=weights,
+                    thresholds=thresholds,
                 )
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"CSV row {row_number}: {exc}") from exc
@@ -357,6 +419,17 @@ def build_parser():
             ),
         )
 
+    for name in RISK_THRESHOLD_NAMES:
+        parser.add_argument(
+            f"--{name}-threshold",
+            type=float,
+            default=DEFAULT_THRESHOLDS[name],
+            help=(
+                f"Minimum score classified as {name.upper()} "
+                f"(default: {DEFAULT_THRESHOLDS[name]:g})."
+            ),
+        )
+
     return parser
 
 
@@ -366,6 +439,14 @@ def weights_from_args(args):
         for name in RISK_COMPONENTS
     }
     return validate_weights(weights)
+
+
+def thresholds_from_args(args):
+    thresholds = {
+        name: getattr(args, f"{name}_threshold")
+        for name in RISK_THRESHOLD_NAMES
+    }
+    return validate_thresholds(thresholds)
 
 
 def validate_cli_mode(parser, args):
@@ -403,9 +484,14 @@ def main():
 
     try:
         weights = weights_from_args(args)
+        thresholds = thresholds_from_args(args)
 
         if args.csv_path:
-            results = score_csv(args.csv_path, weights=weights)
+            results = score_csv(
+                args.csv_path,
+                weights=weights,
+                thresholds=thresholds,
+            )
 
             if args.output:
                 write_results_csv(results, args.output)
@@ -427,6 +513,7 @@ def main():
             compliance_incidents=args.compliance_incidents,
             dependency_share=args.dependency_share,
             weights=weights,
+            thresholds=thresholds,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

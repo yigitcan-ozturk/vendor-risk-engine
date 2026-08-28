@@ -5,12 +5,14 @@ import unittest
 from pathlib import Path
 
 from main import (
+    DEFAULT_THRESHOLDS,
     DEFAULT_WEIGHTS,
     compliance_risk,
     rank_results,
     risk_level,
     score_csv,
     score_vendor,
+    validate_thresholds,
     validate_weights,
     write_results_csv,
 )
@@ -91,13 +93,57 @@ class VendorRiskEngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             compliance_risk(-1)
 
-    def test_risk_level_thresholds(self):
+    def test_default_risk_level_thresholds(self):
         self.assertEqual(risk_level(24.99), "LOW")
         self.assertEqual(risk_level(25), "MEDIUM")
         self.assertEqual(risk_level(50), "HIGH")
         self.assertEqual(risk_level(75), "CRITICAL")
 
-    def test_result_is_json_serializable(self):
+    def test_custom_thresholds_change_classification_not_score(self):
+        custom_thresholds = {
+            "medium": 20.0,
+            "high": 30.0,
+            "critical": 40.0,
+        }
+        result = score_vendor(
+            vendor="Supplier B",
+            on_time_delivery=85,
+            defect_rate=3,
+            prepayment_exposure=40,
+            compliance_incidents=1,
+            dependency_share=50,
+            thresholds=custom_thresholds,
+        )
+
+        self.assertAlmostEqual(result["score"], 31.0)
+        self.assertEqual(result["risk"], "HIGH")
+        self.assertEqual(result["thresholds"], custom_thresholds)
+        self.assertEqual(result["policy"]["thresholds"], custom_thresholds)
+
+    def test_default_thresholds_are_valid(self):
+        self.assertEqual(validate_thresholds(DEFAULT_THRESHOLDS), DEFAULT_THRESHOLDS)
+
+    def test_invalid_threshold_order_rejected(self):
+        with self.assertRaisesRegex(ValueError, "strictly increasing"):
+            validate_thresholds(
+                {
+                    "medium": 30,
+                    "high": 30,
+                    "critical": 75,
+                }
+            )
+
+    def test_threshold_out_of_range_rejected(self):
+        with self.assertRaisesRegex(ValueError, "between 0 and 100"):
+            validate_thresholds(
+                {
+                    "medium": -1,
+                    "high": 50,
+                    "critical": 75,
+                }
+            )
+
+    def test_result_is_json_serializable_and_versioned(self):
         result = score_vendor(
             vendor="Supplier JSON",
             on_time_delivery=90,
@@ -109,6 +155,11 @@ class VendorRiskEngineTests(unittest.TestCase):
 
         encoded = json.dumps(result)
         self.assertIn('"vendor": "Supplier JSON"', encoded)
+        self.assertEqual(result["meta"]["engine"], "vendor-risk-engine")
+        self.assertEqual(result["meta"]["engine_version"], "0.4.0")
+        self.assertEqual(result["meta"]["model_version"], "vendor-risk-v1")
+        self.assertEqual(result["meta"]["schema_version"], "1.0")
+        self.assertEqual(result["policy"]["weights"], result["weights"])
 
     def test_score_csv_multiple_vendors(self):
         csv_text = (
@@ -127,6 +178,7 @@ class VendorRiskEngineTests(unittest.TestCase):
         self.assertEqual(results[0]["risk"], "LOW")
         self.assertEqual(results[1]["risk"], "MEDIUM")
         self.assertAlmostEqual(results[1]["score"], 31.0)
+        self.assertEqual(results[1]["meta"]["engine_version"], "0.4.0")
 
     def test_score_csv_missing_column_rejected(self):
         csv_text = (
@@ -205,7 +257,7 @@ class VendorRiskEngineTests(unittest.TestCase):
                 }
             )
 
-    def test_score_csv_uses_custom_weights(self):
+    def test_score_csv_uses_custom_weights_and_thresholds(self):
         csv_text = (
             "vendor,on_time_delivery,defect_rate,prepayment_exposure,"
             "compliance_incidents,dependency_share\n"
@@ -218,13 +270,23 @@ class VendorRiskEngineTests(unittest.TestCase):
             "compliance": 0.10,
             "dependency": 0.05,
         }
+        custom_thresholds = {
+            "medium": 20.0,
+            "high": 25.0,
+            "critical": 60.0,
+        }
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "vendors.csv"
             path.write_text(csv_text, encoding="utf-8")
-            results = score_csv(path, weights=custom_weights)
+            results = score_csv(
+                path,
+                weights=custom_weights,
+                thresholds=custom_thresholds,
+            )
 
         self.assertAlmostEqual(results[0]["score"], 27.5)
+        self.assertEqual(results[0]["risk"], "HIGH")
 
     def test_rank_results_highest_risk_first(self):
         results = [

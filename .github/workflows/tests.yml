@@ -40,4 +40,4 @@ jobs:
         run: vendor-risk-engine --help
 
       - name: Smoke test installed package
-        run: python -c "import vendor_risk_engine; assert vendor_risk_engine.__version__ == '0.3.0'"
+        run: python -c "import vendor_risk_engine; assert vendor_risk_engine.__version__ == '0.4.0'"

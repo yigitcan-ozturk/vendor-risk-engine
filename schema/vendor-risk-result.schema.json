@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yigitcan-ozturk/vendor-risk-engine/schema/vendor-risk-result.schema.json",
+  "title": "vendor-risk-engine result",
+  "type": "object",
+  "required": [
+    "vendor",
+    "score",
+    "risk",
+    "meta",
+    "policy",
+    "components",
+    "weighted",
+    "weights",
+    "thresholds",
+    "inputs"
+  ],
+  "properties": {
+    "vendor": {"type": "string", "minLength": 1},
+    "score": {"type": "number", "minimum": 0, "maximum": 100},
+    "risk": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "meta": {
+      "type": "object",
+      "required": ["engine", "engine_version", "model_version", "schema_version"],
+      "properties": {
+        "engine": {"const": "vendor-risk-engine"},
+        "engine_version": {"const": "0.4.0"},
+        "model_version": {"const": "vendor-risk-v1"},
+        "schema_version": {"const": "1.0"}
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": ["weights", "thresholds"],
+      "properties": {
+        "weights": {"$ref": "#/$defs/weights"},
+        "thresholds": {"$ref": "#/$defs/thresholds"}
+      },
+      "additionalProperties": false
+    },
+    "components": {"$ref": "#/$defs/riskComponents"},
+    "weighted": {"$ref": "#/$defs/riskComponents"},
+    "weights": {"$ref": "#/$defs/weights"},
+    "thresholds": {"$ref": "#/$defs/thresholds"},
+    "inputs": {
+      "type": "object",
+      "required": [
+        "on_time_delivery",
+        "defect_rate",
+        "prepayment_exposure",
+        "compliance_incidents",
+        "dependency_share"
+      ],
+      "properties": {
+        "on_time_delivery": {"type": "number", "minimum": 0, "maximum": 100},
+        "defect_rate": {"type": "number", "minimum": 0, "maximum": 100},
+        "prepayment_exposure": {"type": "number", "minimum": 0, "maximum": 100},
+        "compliance_incidents": {"type": "integer", "minimum": 0},
+        "dependency_share": {"type": "number", "minimum": 0, "maximum": 100}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "riskComponents": {
+      "type": "object",
+      "required": ["delivery", "quality", "commercial", "compliance", "dependency"],
+      "properties": {
+        "delivery": {"type": "number", "minimum": 0, "maximum": 100},
+        "quality": {"type": "number", "minimum": 0, "maximum": 100},
+        "commercial": {"type": "number", "minimum": 0, "maximum": 100},
+        "compliance": {"type": "number", "minimum": 0, "maximum": 100},
+        "dependency": {"type": "number", "minimum": 0, "maximum": 100}
+      },
+      "additionalProperties": false
+    },
+    "weights": {
+      "type": "object",
+      "required": ["delivery", "quality", "commercial", "compliance", "dependency"],
+      "properties": {
+        "delivery": {"type": "number", "minimum": 0, "maximum": 1},
+        "quality": {"type": "number", "minimum": 0, "maximum": 1},
+        "commercial": {"type": "number", "minimum": 0, "maximum": 1},
+        "compliance": {"type": "number", "minimum": 0, "maximum": 1},
+        "dependency": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "thresholds": {
+      "type": "object",
+      "required": ["medium", "high", "critical"],
+      "properties": {
+        "medium": {"type": "number", "minimum": 0, "maximum": 100},
+        "high": {"type": "number", "minimum": 0, "maximum": 100},
+        "critical": {"type": "number", "minimum": 0, "maximum": 100}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

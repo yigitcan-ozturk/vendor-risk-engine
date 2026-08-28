@@ -14,7 +14,7 @@ The model supports procurement judgment rather than replacing it. Its compliance
 
 Supplier risk is often buried inside subjective notes or blended into a final score without a clear explanation of what drove the result. `vendor-risk-engine` keeps delivery, quality, commercial exposure, compliance incidents and dependency risk visible as separate measurable components.
 
-The objective is an inspectable risk signal that can be reviewed on its own and then passed into a broader supplier decision workflow.
+The objective is an inspectable, policy-aware risk signal that can be reviewed on its own and then passed into a broader supplier decision workflow.
 
 ## Decision boundary
 
@@ -24,9 +24,11 @@ It does:
 
 - calculate explicit component risk scores;
 - support configurable weights that must total 100%;
+- support configurable LOW / MEDIUM / HIGH / CRITICAL thresholds;
 - classify overall supplier risk;
 - score individual suppliers or CSV batches;
-- provide structured JSON for `supplier-scorecard`.
+- emit versioned structured JSON for downstream tools;
+- provide a machine-readable result contract for integration.
 
 It intentionally does **not**:
 
@@ -77,7 +79,7 @@ vendor-risk-engine "Supplier A" \
   --json > vendor-risk.json
 ```
 
-[`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) reads the `vendor` and `score` fields directly from this JSON result.
+[`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) continues to read the top-level `vendor` and `score` fields directly, so the v0.4 structured additions remain backward compatible with the existing integration.
 
 ## Public Python API
 
@@ -128,6 +130,39 @@ vendor-risk-engine --csv samples/vendors.csv \
 
 Weights must be non-negative and total exactly 100%.
 
+## Configurable risk thresholds
+
+Default classification policy:
+
+| Score | Risk |
+| ---: | --- |
+| 0–24.99 | LOW |
+| 25–49.99 | MEDIUM |
+| 50–74.99 | HIGH |
+| 75–100 | CRITICAL |
+
+The boundaries can be adjusted without changing the underlying supplier score:
+
+```bash
+vendor-risk-engine "Supplier A" \
+  --on-time-delivery 85 \
+  --defect-rate 3 \
+  --prepayment-exposure 40 \
+  --compliance-incidents 1 \
+  --dependency-share 50 \
+  --medium-threshold 20 \
+  --high-threshold 40 \
+  --critical-threshold 70
+```
+
+Thresholds must remain between 0 and 100 and satisfy:
+
+```text
+medium < high < critical
+```
+
+This separates **risk measurement** from **organizational risk appetite**: the numerical supplier score stays inspectable while classification policy can be configured for a procurement context.
+
 ## Risk model
 
 | Component | Input | Default weight |
@@ -138,14 +173,33 @@ Weights must be non-negative and total exactly 100%.
 | Compliance | incident-based supplier-risk scale | 15% |
 | Dependency | category dependency share % | 10% |
 
-Overall risk classification:
+## Versioned structured results
 
-| Score | Risk |
-| ---: | --- |
-| 0–24.99 | LOW |
-| 25–49.99 | MEDIUM |
-| 50–74.99 | HIGH |
-| 75–100 | CRITICAL |
+v0.4 adds explicit provenance and policy metadata while keeping the established top-level integration fields.
+
+Example shape:
+
+```json
+{
+  "vendor": "Supplier A",
+  "score": 31.0,
+  "risk": "MEDIUM",
+  "meta": {
+    "engine": "vendor-risk-engine",
+    "engine_version": "0.4.0",
+    "model_version": "vendor-risk-v1",
+    "schema_version": "1.0"
+  },
+  "policy": {
+    "weights": {},
+    "thresholds": {}
+  }
+}
+```
+
+The complete machine-readable contract is available at [`schema/vendor-risk-result.schema.json`](schema/vendor-risk-result.schema.json).
+
+This makes downstream decisions auditable: consumers can determine which engine release, model contract, weighting policy and classification thresholds produced a result.
 
 ## Pipeline role
 
@@ -166,6 +220,8 @@ bidlint ──> technical compliance ──────────────�
 GitHub Actions validates:
 
 - unit tests on Python 3.11, 3.12 and 3.13;
+- configurable weighting and threshold policy behavior;
+- public package API and version metadata;
 - wheel and source-distribution builds;
 - package metadata with `twine check`;
 - installation of the built wheel;
@@ -174,7 +230,8 @@ GitHub Actions validates:
 ## Engineering principles
 
 - **Transparent components** — each risk contribution remains visible.
-- **Configurable, not opaque** — weighting can change, but it must remain explicit and valid.
+- **Configurable, not opaque** — weights and thresholds can change, but the active policy remains explicit and valid.
+- **Versioned evidence** — structured results identify the engine, model and schema version that produced them.
 - **No fabricated evidence** — missing supplier facts are not silently invented.
 - **Separation of concerns** — supplier risk and technical compliance remain independent signals.
 - **Review before authority** — the score informs procurement review; it does not approve a supplier.
@@ -192,15 +249,15 @@ GitHub Actions validates:
 
 ## Roadmap
 
-- Configurable risk thresholds
 - Historical supplier trend scoring
 - Richer supplier compliance-risk models
 - Pipeline portfolio mode with `supplier-scorecard`
-- More explicit source/version metadata in structured results
+- Policy profiles for category- or organization-specific risk appetite
+- Stronger provenance for source datasets and review periods
 
 ## Status
 
-Early-stage project, currently at **v0.3**. The current line provides transparent risk scoring, batch ranking, CSV export, an installable Python package and a console CLI.
+Early-stage project, currently at **v0.4**. The current line provides transparent risk scoring, configurable weights and classification thresholds, batch ranking, CSV export, versioned structured results, an installable Python package and a console CLI.
 
 ## License
 
