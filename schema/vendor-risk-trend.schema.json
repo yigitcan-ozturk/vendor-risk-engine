@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yigitcan-ozturk/vendor-risk-engine/schema/vendor-risk-trend.schema.json",
+  "title": "vendor-risk-engine historical trend result",
+  "type": "object",
+  "required": [
+    "vendor",
+    "current_score",
+    "current_risk",
+    "direction",
+    "latest_delta",
+    "change_from_first",
+    "observations",
+    "first_as_of_date",
+    "current_as_of_date",
+    "trend_tolerance",
+    "meta",
+    "policy",
+    "history"
+  ],
+  "properties": {
+    "vendor": {"type": "string", "minLength": 1},
+    "current_score": {"type": "number", "minimum": 0, "maximum": 100},
+    "current_risk": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "direction": {
+      "enum": ["IMPROVING", "STABLE", "DETERIORATING", "INSUFFICIENT_HISTORY"]
+    },
+    "latest_delta": {"type": ["number", "null"]},
+    "change_from_first": {"type": "number"},
+    "observations": {"type": "integer", "minimum": 1},
+    "first_as_of_date": {"type": "string", "format": "date"},
+    "current_as_of_date": {"type": "string", "format": "date"},
+    "trend_tolerance": {"type": "number", "minimum": 0, "maximum": 100},
+    "meta": {
+      "type": "object",
+      "required": ["engine", "engine_version", "model_version", "schema_version"],
+      "properties": {
+        "engine": {"const": "vendor-risk-engine"},
+        "engine_version": {"const": "0.5.0"},
+        "model_version": {"const": "vendor-risk-trend-v1"},
+        "schema_version": {"const": "1.0"}
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": ["weights", "thresholds"],
+      "properties": {
+        "weights": {"$ref": "#/$defs/weights"},
+        "thresholds": {"$ref": "#/$defs/thresholds"}
+      },
+      "additionalProperties": false
+    },
+    "history": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["as_of_date", "score", "risk"],
+        "properties": {
+          "as_of_date": {"type": "string", "format": "date"},
+          "score": {"type": "number", "minimum": 0, "maximum": 100},
+          "risk": {"enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "weights": {
+      "type": "object",
+      "required": ["delivery", "quality", "commercial", "compliance", "dependency"],
+      "properties": {
+        "delivery": {"type": "number", "minimum": 0, "maximum": 1},
+        "quality": {"type": "number", "minimum": 0, "maximum": 1},
+        "commercial": {"type": "number", "minimum": 0, "maximum": 1},
+        "compliance": {"type": "number", "minimum": 0, "maximum": 1},
+        "dependency": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "thresholds": {
+      "type": "object",
+      "required": ["medium", "high", "critical"],
+      "properties": {
+        "medium": {"type": "number", "minimum": 0, "maximum": 100},
+        "high": {"type": "number", "minimum": 0, "maximum": 100},
+        "critical": {"type": "number", "minimum": 0, "maximum": 100}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
