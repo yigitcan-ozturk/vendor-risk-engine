@@ -6,7 +6,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-`vendor-risk-engine` converts measurable supplier-risk inputs into an explicit 0–100 score and LOW / MEDIUM / HIGH / CRITICAL classification.
+`vendor-risk-engine` converts measurable supplier-risk inputs into an explicit 0–100 score and LOW / MEDIUM / HIGH / CRITICAL classification. It can also analyze repeated supplier observations to show whether risk is **IMPROVING, STABLE or DETERIORATING** over time.
 
 The model supports procurement judgment rather than replacing it. Its compliance signal represents supplier-risk events; technical bid compliance remains an independent responsibility of [`bidlint`](https://github.com/yigitcan-ozturk/bidlint).
 
@@ -14,7 +14,7 @@ The model supports procurement judgment rather than replacing it. Its compliance
 
 Supplier risk is often buried inside subjective notes or blended into a final score without a clear explanation of what drove the result. `vendor-risk-engine` keeps delivery, quality, commercial exposure, compliance incidents and dependency risk visible as separate measurable components.
 
-The objective is an inspectable, policy-aware risk signal that can be reviewed on its own and then passed into a broader supplier decision workflow.
+The objective is an inspectable, policy-aware and time-aware risk signal that can be reviewed on its own and then passed into a broader supplier decision workflow.
 
 ## Decision boundary
 
@@ -27,8 +27,9 @@ It does:
 - support configurable LOW / MEDIUM / HIGH / CRITICAL thresholds;
 - classify overall supplier risk;
 - score individual suppliers or CSV batches;
+- analyze historical supplier observations and trend direction;
 - emit versioned structured JSON for downstream tools;
-- provide a machine-readable result contract for integration.
+- provide machine-readable result contracts for integration.
 
 It intentionally does **not**:
 
@@ -79,7 +80,7 @@ vendor-risk-engine "Supplier A" \
   --json > vendor-risk.json
 ```
 
-[`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) continues to read the top-level `vendor` and `score` fields directly, so the v0.4 structured additions remain backward compatible with the existing integration.
+[`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) continues to read the top-level `vendor` and `score` fields directly.
 
 ## Public Python API
 
@@ -96,7 +97,13 @@ result = vendor_risk_engine.score_vendor(
 )
 ```
 
-## CSV batch scoring
+Historical portfolios are also available through the package API:
+
+```python
+trends = vendor_risk_engine.score_history_csv("samples/vendor_history.csv")
+```
+
+## Current portfolio scoring
 
 ```bash
 vendor-risk-engine --csv samples/vendors.csv
@@ -104,6 +111,48 @@ vendor-risk-engine --csv samples/vendors.csv --json
 ```
 
 `supplier-scorecard` can select a matching supplier from either a single vendor-risk object or a batch JSON list.
+
+## Historical supplier trend scoring
+
+v0.5 adds a separate history mode. The input uses the standard risk fields plus an ISO review date:
+
+```text
+as_of_date,vendor,on_time_delivery,defect_rate,prepayment_exposure,compliance_incidents,dependency_share
+```
+
+Run the included example:
+
+```bash
+vendor-risk-engine --history-csv samples/vendor_history.csv
+```
+
+Structured trend output:
+
+```bash
+vendor-risk-engine --history-csv samples/vendor_history.csv --json
+```
+
+For each supplier the engine reports:
+
+- current score and risk classification;
+- latest score change versus the prior observation;
+- total change from the first observation;
+- observation count and review-date range;
+- `IMPROVING`, `STABLE`, `DETERIORATING` or `INSUFFICIENT_HISTORY` direction;
+- the full chronological score/risk history;
+- the active weight and threshold policy;
+- versioned engine/model/schema metadata.
+
+By default, a score movement of up to **2 points** is treated as stable. This avoids labeling very small scoring noise as a meaningful trend.
+
+```bash
+vendor-risk-engine --history-csv samples/vendor_history.csv \
+  --trend-tolerance 5
+```
+
+A positive score movement means supplier risk increased, so it is classified as **DETERIORATING**. A negative movement means risk decreased, so it is **IMPROVING**.
+
+A supplier with only one dated observation is classified as `INSUFFICIENT_HISTORY` rather than inventing a trend.
 
 ## Configurable weights
 
@@ -175,31 +224,17 @@ This separates **risk measurement** from **organizational risk appetite**: the n
 
 ## Versioned structured results
 
-v0.4 adds explicit provenance and policy metadata while keeping the established top-level integration fields.
+Structured outputs identify the engine, model and schema version that produced them.
 
-Example shape:
+Single/current result contract:
 
-```json
-{
-  "vendor": "Supplier A",
-  "score": 31.0,
-  "risk": "MEDIUM",
-  "meta": {
-    "engine": "vendor-risk-engine",
-    "engine_version": "0.4.0",
-    "model_version": "vendor-risk-v1",
-    "schema_version": "1.0"
-  },
-  "policy": {
-    "weights": {},
-    "thresholds": {}
-  }
-}
-```
+[`schema/vendor-risk-result.schema.json`](schema/vendor-risk-result.schema.json)
 
-The complete machine-readable contract is available at [`schema/vendor-risk-result.schema.json`](schema/vendor-risk-result.schema.json).
+Historical trend result contract:
 
-This makes downstream decisions auditable: consumers can determine which engine release, model contract, weighting policy and classification thresholds produced a result.
+[`schema/vendor-risk-trend.schema.json`](schema/vendor-risk-trend.schema.json)
+
+This makes downstream decisions auditable: consumers can determine which engine release, scoring model, weighting policy, classification thresholds and trend policy produced a result.
 
 ## Pipeline role
 
@@ -213,7 +248,7 @@ vendor-risk-engine ────────────────────�
 bidlint ──> technical compliance ──────────────────────┘
 ```
 
-`vendor-risk-engine` contributes the supplier-risk signal to `supplier-scorecard`; `bidlint` contributes technical compliance separately. This separation keeps operational/vendor risk and engineering compliance independently inspectable.
+`vendor-risk-engine` contributes current and historical supplier-risk signals to the wider procurement intelligence layer; `bidlint` contributes technical compliance separately. This separation keeps operational/vendor risk and engineering compliance independently inspectable.
 
 ## Quality gates
 
@@ -221,6 +256,7 @@ GitHub Actions validates:
 
 - unit tests on Python 3.11, 3.12 and 3.13;
 - configurable weighting and threshold policy behavior;
+- historical trend direction, date parsing and duplicate-date rejection;
 - public package API and version metadata;
 - wheel and source-distribution builds;
 - package metadata with `twine check`;
@@ -230,7 +266,9 @@ GitHub Actions validates:
 ## Engineering principles
 
 - **Transparent components** — each risk contribution remains visible.
-- **Configurable, not opaque** — weights and thresholds can change, but the active policy remains explicit and valid.
+- **Time-aware risk** — repeated observations expose direction rather than only a point-in-time score.
+- **No invented trend** — one observation is insufficient evidence for a trend.
+- **Configurable, not opaque** — weights, thresholds and trend tolerance can change, but active policy remains explicit.
 - **Versioned evidence** — structured results identify the engine, model and schema version that produced them.
 - **No fabricated evidence** — missing supplier facts are not silently invented.
 - **Separation of concerns** — supplier risk and technical compliance remain independent signals.
@@ -243,21 +281,21 @@ GitHub Actions validates:
 | [`currency-normalizer`](https://github.com/yigitcan-ozturk/currency-normalizer) | Normalize quotation values across currencies |
 | [`rfqdiff`](https://github.com/yigitcan-ozturk/rfqdiff) | Compare and score normalized quotations |
 | [`payment-terms-parser`](https://github.com/yigitcan-ozturk/payment-terms-parser) | Convert payment terms into commercial-risk signals |
-| **[`vendor-risk-engine`](https://github.com/yigitcan-ozturk/vendor-risk-engine)** | Score operational, quality, supplier-compliance and dependency risk |
+| **[`vendor-risk-engine`](https://github.com/yigitcan-ozturk/vendor-risk-engine)** | Score current and historical operational, quality, supplier-compliance and dependency risk |
 | [`bidlint`](https://github.com/yigitcan-ozturk/bidlint) | Produce evidence-backed technical-compliance findings and scores |
 | [`supplier-scorecard`](https://github.com/yigitcan-ozturk/supplier-scorecard) | Combine commercial, risk and technical signals into one supplier recommendation |
 
 ## Roadmap
 
-- Historical supplier trend scoring
 - Richer supplier compliance-risk models
 - Pipeline portfolio mode with `supplier-scorecard`
 - Policy profiles for category- or organization-specific risk appetite
 - Stronger provenance for source datasets and review periods
+- Longer-window trend analytics beyond latest-period delta
 
 ## Status
 
-Early-stage project, currently at **v0.4**. The current line provides transparent risk scoring, configurable weights and classification thresholds, batch ranking, CSV export, versioned structured results, an installable Python package and a console CLI.
+Early-stage project, currently at **v0.5**. The current line provides transparent point-in-time risk scoring, configurable weights and thresholds, historical supplier trend scoring, batch ranking, CSV export, versioned structured results, an installable Python package and a console CLI.
 
 ## License
 
