@@ -1,13 +1,17 @@
 import argparse
 import csv
 import json
+from datetime import date
 
 
 ENGINE_NAME = "vendor-risk-engine"
-VERSION = "0.4"
-PACKAGE_VERSION = "0.4.0"
+VERSION = "0.5"
+PACKAGE_VERSION = "0.5.0"
 MODEL_VERSION = "vendor-risk-v1"
 SCHEMA_VERSION = "1.0"
+TREND_MODEL_VERSION = "vendor-risk-trend-v1"
+TREND_SCHEMA_VERSION = "1.0"
+DEFAULT_TREND_TOLERANCE = 2.0
 
 DEFAULT_WEIGHTS = {
     "delivery": 0.30,
@@ -31,6 +35,7 @@ CSV_COLUMNS = (
     "compliance_incidents",
     "dependency_share",
 )
+HISTORY_CSV_COLUMNS = ("as_of_date",) + CSV_COLUMNS
 
 RISK_COMPONENTS = tuple(DEFAULT_WEIGHTS)
 RISK_THRESHOLD_NAMES = tuple(DEFAULT_THRESHOLDS)
@@ -90,6 +95,22 @@ def validate_thresholds(thresholds):
     return normalized
 
 
+def validate_trend_tolerance(value):
+    tolerance = float(value)
+    validate_percent("trend tolerance", tolerance)
+    return tolerance
+
+
+def parse_review_date(value):
+    text = str(value).strip()
+    if not text:
+        raise ValueError("as_of_date cannot be empty.")
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("as_of_date must use ISO format YYYY-MM-DD.") from exc
+
+
 def compliance_risk(incidents):
     if incidents < 0:
         raise ValueError("compliance incidents cannot be negative.")
@@ -120,12 +141,30 @@ def risk_level(score, thresholds=None):
     return "LOW"
 
 
+def trend_direction(delta, tolerance=DEFAULT_TREND_TOLERANCE):
+    active_tolerance = validate_trend_tolerance(tolerance)
+    if delta > active_tolerance:
+        return "DETERIORATING"
+    if delta < -active_tolerance:
+        return "IMPROVING"
+    return "STABLE"
+
+
 def result_metadata():
     return {
         "engine": ENGINE_NAME,
         "engine_version": PACKAGE_VERSION,
         "model_version": MODEL_VERSION,
         "schema_version": SCHEMA_VERSION,
+    }
+
+
+def trend_metadata():
+    return {
+        "engine": ENGINE_NAME,
+        "engine_version": PACKAGE_VERSION,
+        "model_version": TREND_MODEL_VERSION,
+        "schema_version": TREND_SCHEMA_VERSION,
     }
 
 
@@ -239,6 +278,132 @@ def score_csv(path, weights=None, thresholds=None):
     return results
 
 
+def score_history_csv(
+    path,
+    weights=None,
+    thresholds=None,
+    trend_tolerance=DEFAULT_TREND_TOLERANCE,
+):
+    active_tolerance = validate_trend_tolerance(trend_tolerance)
+    grouped = {}
+
+    with open(path, newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+
+        if reader.fieldnames is None:
+            raise ValueError("CSV file must include a header row.")
+
+        missing = [
+            name for name in HISTORY_CSV_COLUMNS
+            if name not in reader.fieldnames
+        ]
+        if missing:
+            raise ValueError(
+                "history CSV is missing required column(s): "
+                + ", ".join(missing)
+            )
+
+        for row_number, row in enumerate(reader, start=2):
+            if not any((value or "").strip() for value in row.values()):
+                continue
+
+            try:
+                review_date = parse_review_date(row["as_of_date"])
+                result = score_vendor(
+                    vendor=row["vendor"],
+                    on_time_delivery=float(row["on_time_delivery"]),
+                    defect_rate=float(row["defect_rate"]),
+                    prepayment_exposure=float(row["prepayment_exposure"]),
+                    compliance_incidents=int(row["compliance_incidents"]),
+                    dependency_share=float(row["dependency_share"]),
+                    weights=weights,
+                    thresholds=thresholds,
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"history CSV row {row_number}: {exc}") from exc
+
+            key = result["vendor"].casefold()
+            entry = grouped.setdefault(
+                key,
+                {"vendor": result["vendor"], "observations": []},
+            )
+            entry["observations"].append(
+                {
+                    "review_date": review_date,
+                    "result": result,
+                }
+            )
+
+    if not grouped:
+        raise ValueError("history CSV contains no vendor rows.")
+
+    trends = []
+    for group in grouped.values():
+        observations = sorted(
+            group["observations"],
+            key=lambda item: item["review_date"],
+        )
+
+        dates = [item["review_date"] for item in observations]
+        if len(dates) != len(set(dates)):
+            raise ValueError(
+                f"history CSV contains duplicate as_of_date for "
+                f"{group['vendor']}."
+            )
+
+        first = observations[0]
+        current = observations[-1]
+        previous = observations[-2] if len(observations) > 1 else None
+
+        current_score = current["result"]["score"]
+        first_score = first["result"]["score"]
+
+        if previous is None:
+            latest_delta = None
+            direction = "INSUFFICIENT_HISTORY"
+        else:
+            latest_delta = round(
+                current_score - previous["result"]["score"],
+                2,
+            )
+            direction = trend_direction(
+                latest_delta,
+                tolerance=active_tolerance,
+            )
+
+        history = [
+            {
+                "as_of_date": item["review_date"].isoformat(),
+                "score": item["result"]["score"],
+                "risk": item["result"]["risk"],
+            }
+            for item in observations
+        ]
+
+        trends.append(
+            {
+                "vendor": group["vendor"],
+                "current_score": current_score,
+                "current_risk": current["result"]["risk"],
+                "direction": direction,
+                "latest_delta": latest_delta,
+                "change_from_first": round(current_score - first_score, 2),
+                "observations": len(observations),
+                "first_as_of_date": first["review_date"].isoformat(),
+                "current_as_of_date": current["review_date"].isoformat(),
+                "trend_tolerance": active_tolerance,
+                "meta": trend_metadata(),
+                "policy": current["result"]["policy"],
+                "history": history,
+            }
+        )
+
+    return sorted(
+        trends,
+        key=lambda item: (-item["current_score"], item["vendor"].lower()),
+    )
+
+
 def rank_results(results):
     return sorted(
         results,
@@ -343,6 +508,36 @@ def print_batch_report(results):
     print(f"Vendors scored      : {len(ranked)}")
 
 
+def print_history_report(trends):
+    print()
+    print(f"VENDOR RISK ENGINE v{VERSION} - HISTORICAL TREND")
+    print("-" * 104)
+    print(
+        f"{'Vendor':28} {'Current':>8} {'Risk':>10} "
+        f"{'Delta':>9} {'Direction':>22} {'Obs':>5} {'As of':>12}"
+    )
+    print("-" * 104)
+
+    for trend in trends:
+        delta = (
+            "n/a"
+            if trend["latest_delta"] is None
+            else f"{trend['latest_delta']:+.2f}"
+        )
+        print(
+            f"{trend['vendor'][:28]:28} "
+            f"{trend['current_score']:8.2f} "
+            f"{trend['current_risk']:>10} "
+            f"{delta:>9} "
+            f"{trend['direction']:>22} "
+            f"{trend['observations']:5d} "
+            f"{trend['current_as_of_date']:>12}"
+        )
+
+    print("-" * 104)
+    print(f"Vendors trended     : {len(trends)}")
+
+
 def print_json(payload):
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -363,7 +558,15 @@ def build_parser():
     parser.add_argument(
         "--csv",
         dest="csv_path",
-        help="Score a portfolio from a CSV file.",
+        help="Score a current supplier portfolio from a CSV file.",
+    )
+    parser.add_argument(
+        "--history-csv",
+        dest="history_csv_path",
+        help=(
+            "Analyze historical supplier risk from a CSV containing "
+            "as_of_date plus the standard risk inputs."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -373,6 +576,15 @@ def build_parser():
         "--json",
         action="store_true",
         help="Return structured JSON instead of the text report.",
+    )
+    parser.add_argument(
+        "--trend-tolerance",
+        type=float,
+        default=DEFAULT_TREND_TOLERANCE,
+        help=(
+            "Score-point change treated as stable in history mode "
+            f"(default: {DEFAULT_TREND_TOLERANCE:g})."
+        ),
     )
     parser.add_argument(
         "--on-time-delivery",
@@ -450,17 +662,25 @@ def thresholds_from_args(args):
 
 
 def validate_cli_mode(parser, args):
-    if args.csv_path and args.vendor:
-        parser.error("use either a vendor name or --csv, not both.")
+    mode_count = sum(
+        bool(value)
+        for value in (args.vendor, args.csv_path, args.history_csv_path)
+    )
+    if mode_count > 1:
+        parser.error(
+            "use exactly one of a vendor name, --csv, or --history-csv."
+        )
 
     if args.output and not args.csv_path:
         parser.error("--output requires --csv.")
 
-    if args.csv_path:
+    if args.csv_path or args.history_csv_path:
         return
 
     if not args.vendor:
-        parser.error("vendor name is required unless --csv is used.")
+        parser.error(
+            "vendor name is required unless --csv or --history-csv is used."
+        )
 
     required = {
         "--on-time-delivery": args.on_time_delivery,
@@ -485,6 +705,19 @@ def main():
     try:
         weights = weights_from_args(args)
         thresholds = thresholds_from_args(args)
+
+        if args.history_csv_path:
+            trends = score_history_csv(
+                args.history_csv_path,
+                weights=weights,
+                thresholds=thresholds,
+                trend_tolerance=args.trend_tolerance,
+            )
+            if args.json:
+                print_json(trends)
+            else:
+                print_history_report(trends)
+            return
 
         if args.csv_path:
             results = score_csv(

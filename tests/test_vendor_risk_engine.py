@@ -6,13 +6,18 @@ from pathlib import Path
 
 from main import (
     DEFAULT_THRESHOLDS,
+    DEFAULT_TREND_TOLERANCE,
     DEFAULT_WEIGHTS,
     compliance_risk,
     rank_results,
+    parse_review_date,
     risk_level,
     score_csv,
+    score_history_csv,
     score_vendor,
+    trend_direction,
     validate_thresholds,
+    validate_trend_tolerance,
     validate_weights,
     write_results_csv,
 )
@@ -156,7 +161,7 @@ class VendorRiskEngineTests(unittest.TestCase):
         encoded = json.dumps(result)
         self.assertIn('"vendor": "Supplier JSON"', encoded)
         self.assertEqual(result["meta"]["engine"], "vendor-risk-engine")
-        self.assertEqual(result["meta"]["engine_version"], "0.4.0")
+        self.assertEqual(result["meta"]["engine_version"], "0.5.0")
         self.assertEqual(result["meta"]["model_version"], "vendor-risk-v1")
         self.assertEqual(result["meta"]["schema_version"], "1.0")
         self.assertEqual(result["policy"]["weights"], result["weights"])
@@ -178,7 +183,7 @@ class VendorRiskEngineTests(unittest.TestCase):
         self.assertEqual(results[0]["risk"], "LOW")
         self.assertEqual(results[1]["risk"], "MEDIUM")
         self.assertAlmostEqual(results[1]["score"], 31.0)
-        self.assertEqual(results[1]["meta"]["engine_version"], "0.4.0")
+        self.assertEqual(results[1]["meta"]["engine_version"], "0.5.0")
 
     def test_score_csv_missing_column_rejected(self):
         csv_text = (
@@ -287,6 +292,115 @@ class VendorRiskEngineTests(unittest.TestCase):
 
         self.assertAlmostEqual(results[0]["score"], 27.5)
         self.assertEqual(results[0]["risk"], "HIGH")
+
+    def test_trend_direction_uses_tolerance(self):
+        self.assertEqual(trend_direction(2.0), "STABLE")
+        self.assertEqual(trend_direction(2.01), "DETERIORATING")
+        self.assertEqual(trend_direction(-2.01), "IMPROVING")
+        self.assertEqual(
+            trend_direction(4.0, tolerance=5.0),
+            "STABLE",
+        )
+
+    def test_trend_tolerance_validation(self):
+        self.assertEqual(
+            validate_trend_tolerance(DEFAULT_TREND_TOLERANCE),
+            2.0,
+        )
+        with self.assertRaisesRegex(ValueError, "between 0 and 100"):
+            validate_trend_tolerance(-1)
+
+    def test_parse_review_date_requires_iso_format(self):
+        self.assertEqual(
+            parse_review_date("2026-08-28").isoformat(),
+            "2026-08-28",
+        )
+        with self.assertRaisesRegex(ValueError, "YYYY-MM-DD"):
+            parse_review_date("28/08/2026")
+
+    def test_score_history_csv_detects_deterioration(self):
+        csv_text = (
+            "as_of_date,vendor,on_time_delivery,defect_rate,"
+            "prepayment_exposure,compliance_incidents,dependency_share\n"
+            "2026-06-30,Supplier Trend,98,0.5,0,0,20\n"
+            "2026-07-31,Supplier Trend,90,2,20,0,30\n"
+            "2026-08-31,Supplier Trend,80,4,40,1,50\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "history.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            trends = score_history_csv(path)
+
+        self.assertEqual(len(trends), 1)
+        trend = trends[0]
+        self.assertEqual(trend["vendor"], "Supplier Trend")
+        self.assertEqual(trend["observations"], 3)
+        self.assertEqual(trend["direction"], "DETERIORATING")
+        self.assertGreater(trend["latest_delta"], 2.0)
+        self.assertGreater(trend["change_from_first"], 0)
+        self.assertEqual(trend["current_as_of_date"], "2026-08-31")
+        self.assertEqual(trend["meta"]["engine_version"], "0.5.0")
+        self.assertEqual(trend["meta"]["model_version"], "vendor-risk-trend-v1")
+        self.assertEqual(len(trend["history"]), 3)
+
+    def test_score_history_csv_detects_improvement(self):
+        csv_text = (
+            "as_of_date,vendor,on_time_delivery,defect_rate,"
+            "prepayment_exposure,compliance_incidents,dependency_share\n"
+            "2026-06-30,Supplier Improve,75,5,60,1,60\n"
+            "2026-07-31,Supplier Improve,90,2,20,0,30\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "history.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            trends = score_history_csv(path)
+
+        self.assertEqual(trends[0]["direction"], "IMPROVING")
+        self.assertLess(trends[0]["latest_delta"], -2.0)
+
+    def test_score_history_csv_single_observation_is_insufficient(self):
+        csv_text = (
+            "as_of_date,vendor,on_time_delivery,defect_rate,"
+            "prepayment_exposure,compliance_incidents,dependency_share\n"
+            "2026-08-31,Supplier New,95,1,0,0,20\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "history.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            trends = score_history_csv(path)
+
+        self.assertEqual(trends[0]["direction"], "INSUFFICIENT_HISTORY")
+        self.assertIsNone(trends[0]["latest_delta"])
+
+    def test_score_history_csv_rejects_duplicate_vendor_date(self):
+        csv_text = (
+            "as_of_date,vendor,on_time_delivery,defect_rate,"
+            "prepayment_exposure,compliance_incidents,dependency_share\n"
+            "2026-08-31,Supplier Dup,95,1,0,0,20\n"
+            "2026-08-31,Supplier Dup,90,2,10,0,25\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "history.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "duplicate as_of_date"):
+                score_history_csv(path)
+
+    def test_score_history_csv_rejects_missing_date_column(self):
+        csv_text = (
+            "vendor,on_time_delivery,defect_rate,prepayment_exposure,"
+            "compliance_incidents,dependency_share\n"
+            "Supplier A,98,0.5,0,0,20\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "history.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "as_of_date"):
+                score_history_csv(path)
 
     def test_rank_results_highest_risk_first(self):
         results = [

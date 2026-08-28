@@ -5,8 +5,8 @@ import vendor_risk_engine
 
 class PackageTests(unittest.TestCase):
     def test_public_version(self):
-        self.assertEqual(vendor_risk_engine.__version__, "0.4.0")
-        self.assertEqual(vendor_risk_engine.VERSION, "0.4")
+        self.assertEqual(vendor_risk_engine.__version__, "0.5.0")
+        self.assertEqual(vendor_risk_engine.VERSION, "0.5")
 
     def test_public_scoring_api(self):
         result = vendor_risk_engine.score_vendor(
@@ -19,13 +19,20 @@ class PackageTests(unittest.TestCase):
         )
         self.assertEqual(result["vendor"], "Supplier A")
         self.assertIn(result["risk"], {"LOW", "MEDIUM", "HIGH", "CRITICAL"})
-        self.assertEqual(result["meta"]["engine_version"], "0.4.0")
+        self.assertEqual(result["meta"]["engine_version"], "0.5.0")
 
     def test_public_policy_api(self):
         thresholds = vendor_risk_engine.validate_thresholds(
             {"medium": 20, "high": 40, "critical": 60}
         )
         self.assertEqual(thresholds["high"], 40.0)
+
+    def test_public_trend_api(self):
+        self.assertEqual(
+            vendor_risk_engine.trend_direction(3),
+            "DETERIORATING",
+        )
+        self.assertTrue(callable(vendor_risk_engine.score_history_csv))
 
 
 if __name__ == "__main__":
